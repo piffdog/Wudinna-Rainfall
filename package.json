@@ -1,0 +1,10 @@
+{
+  "scripts": {
+    "update-rainfall": "node scripts/update-current-year.js"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "papaparse": "^5.4.1"
+  },
+  "devDependencies": {}
+}

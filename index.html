@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <title>Wudinna Aero Rainfall</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <div>
+        <h1>Wudinna Aero cumulative rainfall</h1>
+        <p>Rainfall year ending October · Station 018083</p>
+      </div>
+      <div class="status" id="status">Loading latest data…</div>
+    </header>
+
+    <section class="chart-card">
+      <canvas id="rainfallChart" aria-label="Wudinna Aero rainfall chart"></canvas>
+    </section>
+
+    <section class="summary" id="summary"></section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

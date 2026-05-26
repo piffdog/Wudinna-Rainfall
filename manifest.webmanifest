@@ -1,0 +1,15 @@
+{
+  "name": "Wudinna Aero Rainfall",
+  "short_name": "Wudinna Rain",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
