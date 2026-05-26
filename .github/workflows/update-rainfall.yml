@@ -3,8 +3,7 @@ name: Update Wudinna rainfall data
 on:
   workflow_dispatch:
   schedule:
-    # Runs daily at 8:15pm UTC, which is morning in Australia.
-    - cron: "15 20 * * *"
+    - cron: "0 * * * *"
 
 permissions:
   contents: write
