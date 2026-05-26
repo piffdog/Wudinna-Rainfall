@@ -6,7 +6,10 @@ const Papa = require("papaparse");
 const STATION = "018083";
 const STATION_NAME = "Wudinna Aero";
 const RAINFALL_YEAR_ENDING_OCTOBER = 2026;
+
 const START_DATE = "2025-11-01";
+const STATIC_CARRYOVER_END_DATE = "2025-12-31";
+const REFRESH_START_DATE = "2026-01-01";
 const END_DATE = "2026-10-31";
 
 const OUT_PATH = path.join(__dirname, "..", "data", "current-year.json");
@@ -44,11 +47,19 @@ function round1(x) {
   return Math.round((Number(x) + Number.EPSILON) * 10) / 10;
 }
 
+async function readExistingJson() {
+  const raw = await fs.readFile(OUT_PATH, "utf8");
+  return JSON.parse(raw);
+}
+
 async function fetchDailyCsv(year) {
   const url = bomZipUrl(year);
+
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Mozilla/5.0 GitHubActions WudinnaRainfallApp"
+      "User-Agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/124 Safari/537.36",
+      "Accept": "application/zip,application/octet-stream,*/*",
+      "Referer": "https://www.bom.gov.au/"
     }
   });
 
@@ -100,22 +111,15 @@ function normaliseRows(rows) {
   });
 }
 
-async function main() {
-  const years = [2025, 2026];
-  const all = [];
-
-  for (const year of years) {
-    const rows = await fetchDailyCsv(year);
-    all.push(...normaliseRows(rows));
-  }
-
-  const filtered = all
+function buildDailyRows(staticRows, refreshedRows) {
+  const combined = [...staticRows, ...refreshedRows]
     .filter(d => d.date >= START_DATE && d.date <= END_DATE)
     .sort((a, b) => a.date.localeCompare(b.date));
 
   let cumulative = 0;
-  const daily = filtered.map(d => {
-    cumulative += d.rainfall_mm;
+
+  return combined.map(d => {
+    cumulative += Number(d.rainfall_mm || 0);
     return {
       date: d.date,
       rainfall_mm: round1(d.rainfall_mm),
@@ -123,10 +127,31 @@ async function main() {
       x: monthAxis(d.date)
     };
   });
+}
 
-  if (!daily.length) {
-    throw new Error("No current rainfall-year daily data after filtering.");
+async function main() {
+  const existing = await readExistingJson();
+
+  const staticCarryover = (existing.daily || [])
+    .filter(d => d.date >= START_DATE && d.date <= STATIC_CARRYOVER_END_DATE)
+    .map(d => ({
+      date: d.date,
+      rainfall_mm: Number(d.rainfall_mm || 0)
+    }));
+
+  if (!staticCarryover.length) {
+    throw new Error("Existing data/current-year.json does not contain Nov-Dec 2025 carryover rows.");
   }
+
+  const rows2026 = await fetchDailyCsv(2026);
+  const refreshed2026 = normaliseRows(rows2026)
+    .filter(d => d.date >= REFRESH_START_DATE && d.date <= END_DATE);
+
+  if (!refreshed2026.length) {
+    throw new Error("No 2026 daily rows after filtering.");
+  }
+
+  const daily = buildDailyRows(staticCarryover, refreshed2026);
 
   const output = {
     station: STATION,
@@ -135,7 +160,7 @@ async function main() {
     startDate: START_DATE,
     endDate: END_DATE,
     updatedAt: new Date().toISOString(),
-    source: "BOM daily rainfall ZIP files IDCJAC0009 for station 018083, years 2025 and 2026.",
+    source: "Nov-Dec 2025 retained from committed JSON; 2026 refreshed from BOM daily rainfall ZIP IDCJAC0009 for station 018083.",
     daily
   };
 
