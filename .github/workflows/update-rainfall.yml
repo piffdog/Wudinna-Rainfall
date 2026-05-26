@@ -1,0 +1,36 @@
+name: Update Wudinna rainfall data
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Runs daily at 8:15pm UTC, which is morning in Australia.
+    - cron: "15 20 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  update-rainfall:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Fetch latest BOM rainfall data
+        run: npm run update-rainfall
+
+      - name: Commit updated rainfall data
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Update Wudinna rainfall data"
+          file_pattern: data/current-year.json
