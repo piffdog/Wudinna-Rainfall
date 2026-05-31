@@ -3,7 +3,7 @@ name: Update Wudinna rainfall data
 on:
   workflow_dispatch:
   schedule:
-    - cron: "17 * * * *"
+    - cron: "30 0 * * *"
 
 permissions:
   contents: write
