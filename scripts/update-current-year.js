@@ -200,6 +200,11 @@ async function main() {
 }
 
 main().catch(err => {
+  if (String(err.message).includes("HTTP 403")) {
+    console.warn("BOM returned HTTP 403. Keeping the last successful rainfall data and trying again next run.");
+    process.exit(0);
+  }
+
   console.error(err);
   process.exit(1);
 });
