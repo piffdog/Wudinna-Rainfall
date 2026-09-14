@@ -4,7 +4,7 @@
   "rainfallYearEndingOctober": 2026,
   "startDate": "2025-11-01",
   "endDate": "2026-10-31",
-  "updatedAt": "2026-09-14T03:02:06.916Z",
+  "updatedAt": "2026-09-14T23:58:47.551Z",
   "source": "Nov-Dec 2025 retained from committed JSON; 2026 refreshed from BOM daily rainfall ZIP IDCJAC0009 for station 018083.",
   "daily": [
     {
