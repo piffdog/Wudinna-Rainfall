@@ -1,24 +1,14 @@
 const fs = require("fs/promises");
 const path = require("path");
-const JSZip = require("jszip");
 const Papa = require("papaparse");
 
 const STATION = "018083";
 const STATION_NAME = "Wudinna Aero";
+const DWO_STATION_CODE = "5073";
 const RAINFALL_YEAR_ENDING_OCTOBER = 2026;
 
 const START_DATE = "2025-11-01";
-const STATIC_CARRYOVER_END_DATE = "2025-12-31";
-const REFRESH_START_DATE = "2026-01-01";
 const END_DATE = "2026-10-31";
-
-const DAILY_PAGE_URL =
-  "https://www.bom.gov.au/jsp/ncc/cdio/weatherData/av" +
-  "?p_nccObsCode=136" +
-  "&p_display_type=dailyDataFile" +
-  "&p_startYear=" +
-  "&p_c=" +
-  "&p_stn_num=018083";
 
 const OUT_PATH = path.join(
   __dirname,
@@ -30,8 +20,7 @@ const OUT_PATH = path.join(
 const HEADERS = {
   "User-Agent":
     "Mozilla/5.0 AppleWebKit/537.36 Chrome/124 Safari/537.36",
-  "Accept":
-    "text/html,application/zip,application/octet-stream,*/*",
+  "Accept": "text/csv,text/plain,*/*",
   "Referer": "https://www.bom.gov.au/"
 };
 
@@ -68,176 +57,303 @@ function round1(x) {
   ) / 10;
 }
 
-async function readExistingJson() {
-  const raw = await fs.readFile(OUT_PATH, "utf8");
-  return JSON.parse(raw);
+function isoMonth(year, month) {
+  return `${year}${String(month).padStart(2, "0")}`;
 }
 
-async function fetchFreshZipUrl() {
-  const response = await fetch(
-    DAILY_PAGE_URL,
-    { headers: HEADERS }
-  );
+function monthRange(
+  startYear,
+  startMonth,
+  endYear,
+  endMonth
+) {
+  const out = [];
+  let i = 0;
 
-  if (!response.ok) {
-    throw new Error(
-      `BOM daily page failed: HTTP ${response.status} ${DAILY_PAGE_URL}`
+  const end =
+    new Date(
+      Date.UTC(endYear, endMonth - 1, 1)
     );
+
+  while (true) {
+    const d =
+      new Date(
+        Date.UTC(
+          startYear,
+          startMonth - 1 + i,
+          1
+        )
+      );
+
+    if (d > end) break;
+
+    out.push({
+      year: d.getUTCFullYear(),
+      month: d.getUTCMonth() + 1
+    });
+
+    i += 1;
   }
 
-  const html = await response.text();
+  return out;
+}
 
-  const matches = [
-    ...html.matchAll(
-      /["']([^"']*IDCJAC0009_018083_[0-9]{4}\.zip)["']/g
-    )
-  ].map(m => m[1]);
-
-  if (!matches.length) {
-    throw new Error(
-      "Could not find a fresh IDCJAC0009 ZIP link on the BOM daily rainfall page."
-    );
-  }
-
-  const preferred =
-    matches.find(x => x.includes("_2026.zip")) ||
-    matches[0];
-
-  if (preferred.startsWith("http")) {
-    return preferred;
-  }
-
-  if (preferred.startsWith("/")) {
-    return `https://www.bom.gov.au${preferred}`;
-  }
+function dailyCsvUrl(year, month) {
+  const ym = isoMonth(year, month);
 
   return (
-    "https://www.bom.gov.au/" +
-    preferred.replace(/^\.\//, "")
+    `https://www.bom.gov.au/climate/dwo/` +
+    `${ym}/text/` +
+    `IDCJDW${DWO_STATION_CODE}.${ym}.csv`
   );
 }
 
-async function fetchDailyCsvFromFreshZip() {
-  const zipUrl = await fetchFreshZipUrl();
+async function fetchWithRetry(
+  url,
+  attempts = 4
+) {
+  let lastError = null;
 
-  console.log(`Fresh BOM ZIP URL: ${zipUrl}`);
+  for (
+    let attempt = 1;
+    attempt <= attempts;
+    attempt++
+  ) {
+    try {
+      const response =
+        await fetch(
+          url,
+          { headers: HEADERS }
+        );
 
-  const response = await fetch(
-    zipUrl,
-    { headers: HEADERS }
-  );
+      if (response.ok) {
+        return await response.text();
+      }
 
-  if (!response.ok) {
-    throw new Error(
-      `BOM ZIP download failed: HTTP ${response.status} ${zipUrl}`
-    );
+      lastError =
+        new Error(
+          `BOM request failed: ` +
+          `HTTP ${response.status} ${url}`
+        );
+    } catch (err) {
+      lastError = err;
+    }
+
+    if (attempt < attempts) {
+      const waitMs =
+        1500 * attempt;
+
+      console.log(
+        `Retrying BOM request in ` +
+        `${waitMs}ms ` +
+        `(attempt ${attempt + 1}/${attempts})`
+      );
+
+      await new Promise(
+        resolve =>
+          setTimeout(resolve, waitMs)
+      );
+    }
   }
 
-  const arrayBuffer =
-    await response.arrayBuffer();
+  throw lastError;
+}
 
-  const zip =
-    await JSZip.loadAsync(
-      Buffer.from(arrayBuffer)
-    );
-
-  const csvName =
-    Object.keys(zip.files).find(
-      name => name.toLowerCase().endsWith(".csv")
-    );
-
-  if (!csvName) {
-    throw new Error(
-      "No CSV found in BOM ZIP."
-    );
-  }
-
-  const csvText =
-    await zip.file(csvName).async("string");
-
-  const parsed = Papa.parse(csvText, {
-    header: true,
-    dynamicTyping: false,
-    skipEmptyLines: true
-  });
+function parseBOMMonthlyCsv(
+  csvText,
+  year,
+  month
+) {
+  const parsed =
+    Papa.parse(csvText, {
+      header: true,
+      dynamicTyping: false,
+      skipEmptyLines: true
+    });
 
   if (parsed.errors.length) {
     throw new Error(
-      `CSV parse errors: ${
-        JSON.stringify(
-          parsed.errors.slice(0, 3)
-        )
-      }`
+      `CSV parse errors for ` +
+      `${year}-` +
+      `${String(month).padStart(2, "0")}: ` +
+      JSON.stringify(
+        parsed.errors.slice(0, 3)
+      )
     );
   }
 
-  return parsed.data;
-}
+  const headers =
+    Object.keys(
+      parsed.data[0] || {}
+    );
 
-function normaliseRows(rows) {
-  return rows.map(row => {
-    const year = Number(row.Year);
-    const month = Number(row.Month);
-    const day = Number(row.Day);
+  const dateKey =
+    headers.find(
+      k =>
+        k.trim().toLowerCase() ===
+        "date"
+    );
 
-    const date =
-      `${String(year).padStart(4, "0")}-` +
-      `${String(month).padStart(2, "0")}-` +
-      `${String(day).padStart(2, "0")}`;
+  const rainfallKey =
+    headers.find(
+      k =>
+        k.trim().toLowerCase() ===
+        "rainfall (mm)"
+    ) ||
+    headers.find(
+      k =>
+        k.trim()
+          .toLowerCase()
+          .includes("rainfall")
+    );
 
-    const rainKey =
-      Object.keys(row).find(
-        k =>
-          k.toLowerCase()
-            .includes("rainfall amount")
-      );
+  if (!dateKey || !rainfallKey) {
+    throw new Error(
+      `Could not identify Date/Rainfall ` +
+      `columns for ${year}-` +
+      `${String(month).padStart(2, "0")}. ` +
+      `Headers: ${headers.join(", ")}`
+    );
+  }
 
-    if (!rainKey) {
-      throw new Error(
-        "Could not find rainfall amount column in BOM CSV"
-      );
+  const rows = [];
+
+  for (const row of parsed.data) {
+    const rawDate =
+      String(
+        row[dateKey] || ""
+      ).trim();
+
+    if (
+      !rawDate ||
+      !/^\d{4}-\d{1,2}-\d{1,2}$/.test(
+        rawDate
+      )
+    ) {
+      continue;
     }
 
-    const rainRaw = row[rainKey];
+    const rainfallRaw =
+      String(
+        row[rainfallKey] ?? ""
+      ).trim();
+
+    if (rainfallRaw === "") {
+      continue;
+    }
 
     const rainfall =
-      rainRaw === "" || rainRaw == null
-        ? 0
-        : Number(rainRaw);
+      Number(rainfallRaw);
 
-    return {
+    if (!Number.isFinite(rainfall)) {
+      continue;
+    }
+
+    const dateParts =
+      rawDate
+        .split("-")
+        .map(Number);
+
+    const date =
+      `${String(dateParts[0])
+        .padStart(4, "0")}-` +
+      `${String(dateParts[1])
+        .padStart(2, "0")}-` +
+      `${String(dateParts[2])
+        .padStart(2, "0")}`;
+
+    rows.push({
       date,
-      rainfall_mm:
-        Number.isFinite(rainfall)
-          ? rainfall
-          : 0
-    };
-  });
+      rainfall_mm: rainfall
+    });
+  }
+
+  return rows;
 }
 
-function buildDailyRows(
-  staticRows,
-  refreshedRows
-) {
-  const combined = [
-    ...staticRows,
-    ...refreshedRows
-  ]
+function todayISO() {
+  const d = new Date();
+
+  const y =
+    d.getUTCFullYear();
+
+  const m =
+    String(
+      d.getUTCMonth() + 1
+    ).padStart(2, "0");
+
+  const day =
+    String(
+      d.getUTCDate()
+    ).padStart(2, "0");
+
+  return `${y}-${m}-${day}`;
+}
+
+async function fetchDailyRowsForDateRange() {
+  const now = new Date();
+
+  const currentYear =
+    now.getUTCFullYear();
+
+  const currentMonth =
+    now.getUTCMonth() + 1;
+
+  const months =
+    monthRange(
+      2025,
+      11,
+      currentYear,
+      currentMonth
+    );
+
+  const all = [];
+
+  for (
+    const { year, month }
+    of months
+  ) {
+    const url =
+      dailyCsvUrl(
+        year,
+        month
+      );
+
+    console.log(
+      `Fetching BOM daily data: ${url}`
+    );
+
+    const csvText =
+      await fetchWithRetry(url);
+
+    const rows =
+      parseBOMMonthlyCsv(
+        csvText,
+        year,
+        month
+      );
+
+    all.push(...rows);
+  }
+
+  return all
     .filter(
       d =>
         d.date >= START_DATE &&
-        d.date <= END_DATE
+        d.date <= END_DATE &&
+        d.date <= todayISO()
     )
     .sort(
       (a, b) =>
         a.date.localeCompare(b.date)
     );
+}
 
+function buildDailyRows(rows) {
   let cumulative = 0;
 
-  return combined.map(d => {
-    cumulative +=
-      Number(d.rainfall_mm || 0);
+  return rows.map(d => {
+    cumulative += d.rainfall_mm;
 
     return {
       date: d.date,
@@ -251,62 +367,23 @@ function buildDailyRows(
 }
 
 async function main() {
-  const existing =
-    await readExistingJson();
+  const dailySourceRows =
+    await fetchDailyRowsForDateRange();
 
-  /*
-   * Nov-Dec 2025 are already complete.
-   * Keep those observations from the
-   * existing committed JSON rather than
-   * downloading 2025 again.
-   */
-  const staticCarryover =
-    (existing.daily || [])
-      .filter(
-        d =>
-          d.date >= START_DATE &&
-          d.date <=
-            STATIC_CARRYOVER_END_DATE
-      )
-      .map(d => ({
-        date: d.date,
-        rainfall_mm:
-          Number(d.rainfall_mm || 0)
-      }));
-
-  if (!staticCarryover.length) {
+  if (!dailySourceRows.length) {
     throw new Error(
-      "Existing data/current-year.json does not contain Nov-Dec 2025 carryover rows."
-    );
-  }
-
-  /*
-   * First load the BOM daily-data page.
-   * That page generates the current
-   * temporary ZIP URL.
-   */
-  const rowsFromBom =
-    await fetchDailyCsvFromFreshZip();
-
-  const refreshed2026 =
-    normaliseRows(rowsFromBom)
-      .filter(
-        d =>
-          d.date >= REFRESH_START_DATE &&
-          d.date <= END_DATE
-      );
-
-  if (!refreshed2026.length) {
-    throw new Error(
-      "No 2026 daily rows after filtering."
+      "No BOM daily rainfall rows were " +
+      "retrieved for the current rainfall year."
     );
   }
 
   const daily =
     buildDailyRows(
-      staticCarryover,
-      refreshed2026
+      dailySourceRows
     );
+
+  const latest =
+    daily[daily.length - 1];
 
   const output = {
     station: STATION,
@@ -318,7 +395,9 @@ async function main() {
     updatedAt:
       new Date().toISOString(),
     source:
-      "Nov-Dec 2025 retained from committed JSON; 2026 refreshed from the current BOM daily rainfall ZIP link generated by the daily rainfall page.",
+      "BOM Daily Weather Observations " +
+      "monthly CSV files for Wudinna Aero " +
+      "station 018083 (DWO station code 5073).",
     daily
   };
 
@@ -329,21 +408,22 @@ async function main() {
 
   await fs.writeFile(
     OUT_PATH,
-    JSON.stringify(output, null, 2) + "\n",
+    JSON.stringify(
+      output,
+      null,
+      2
+    ) + "\n",
     "utf8"
   );
 
   console.log(
-    `Wrote ${daily.length} daily rows to ${OUT_PATH}`
+    `Wrote ${daily.length} daily rows ` +
+    `to ${OUT_PATH}`
   );
 
   console.log(
-    `Latest: ${
-      daily[daily.length - 1].date
-    } = ${
-      daily[daily.length - 1]
-        .cumulative_mm
-    }mm`
+    `Latest: ${latest.date} = ` +
+    `${latest.cumulative_mm}mm`
   );
 }
 
