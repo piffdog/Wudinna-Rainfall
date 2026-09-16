@@ -20,8 +20,10 @@ const OUT_PATH = path.join(
 const HEADERS = {
   "User-Agent":
     "Mozilla/5.0 AppleWebKit/537.36 Chrome/124 Safari/537.36",
-  "Accept": "text/csv,text/plain,*/*",
-  "Referer": "https://www.bom.gov.au/"
+  "Accept":
+    "text/csv,text/plain,*/*",
+  "Referer":
+    "https://www.bom.gov.au/"
 };
 
 function monthAxis(date) {
@@ -58,7 +60,9 @@ function round1(x) {
 }
 
 function isoMonth(year, month) {
-  return `${year}${String(month).padStart(2, "0")}`;
+  return (
+    `${year}${String(month).padStart(2, "0")}`
+  );
 }
 
 function monthRange(
@@ -87,7 +91,8 @@ function monthRange(
 
     out.push({
       year: d.getUTCFullYear(),
-      month: d.getUTCMonth() + 1
+      month:
+        d.getUTCMonth() + 1
     });
 
     i += 1;
@@ -118,25 +123,27 @@ async function fetchWithRetry(
     attempt++
   ) {
     try {
-      const response = await fetch(
-        url,
-        { headers: HEADERS }
-      );
+      const response =
+        await fetch(url, {
+          headers: HEADERS
+        });
 
       if (response.ok) {
         return await response.text();
       }
 
-      lastError = new Error(
-        `BOM request failed: ` +
-        `HTTP ${response.status} ${url}`
-      );
+      lastError =
+        new Error(
+          `BOM request failed: ` +
+          `HTTP ${response.status} ${url}`
+        );
     } catch (err) {
       lastError = err;
     }
 
     if (attempt < attempts) {
-      const waitMs = 1500 * attempt;
+      const waitMs =
+        1500 * attempt;
 
       console.log(
         `Retrying BOM request in ` +
@@ -153,42 +160,12 @@ async function fetchWithRetry(
   throw lastError;
 }
 
-function stripBOM(text) {
-  return text.replace(/^\uFEFF/, "");
-}
-
-function isolateBOMTable(csvText) {
-  const text = stripBOM(
-    csvText.replace(/\r\n/g, "\n")
-  );
-
-  const lines = text.split("\n");
-
-  /*
-   * BOM files contain descriptive metadata
-   * before the actual CSV table.
-   *
-   * Find the real header beginning "Date,"
-   * and discard everything before it.
-   */
-  const headerIndex = lines.findIndex(
-    line =>
-      line
-        .trim()
-        .toLowerCase()
-        .startsWith("date,")
-  );
-
-  if (headerIndex === -1) {
-    throw new Error(
-      "Could not find the BOM CSV header " +
-      "line beginning with 'Date,'."
-    );
-  }
-
-  return lines
-    .slice(headerIndex)
-    .join("\n");
+function cleanCell(value) {
+  return String(value ?? "")
+    .replace(/^\uFEFF/, "")
+    .replace(/^["']+/, "")
+    .replace(/["']+$/, "")
+    .trim();
 }
 
 function parseBOMMonthlyCsv(
@@ -196,71 +173,115 @@ function parseBOMMonthlyCsv(
   year,
   month
 ) {
-  const tableText =
-    isolateBOMTable(csvText);
+  /*
+   * First parse without assuming which row
+   * is the header. BOM puts descriptive
+   * metadata before the actual table.
+   */
+  const raw = stripBOM(csvText);
 
-  const parsed = Papa.parse(
-    tableText,
+  const rows = Papa.parse(
+    raw,
     {
-      header: true,
+      header: false,
       dynamicTyping: false,
-      skipEmptyLines: true
+      skipEmptyLines: false
     }
-  );
+  ).data;
 
-  if (parsed.errors.length) {
-    throw new Error(
-      `CSV parse errors for ` +
-      `${year}-` +
-      `${String(month).padStart(2, "0")}: ` +
-      JSON.stringify(
-        parsed.errors.slice(0, 5)
-      )
-    );
-  }
+  let headerIndex = -1;
+  let dateColumn = -1;
+  let rainfallColumn = -1;
 
-  const headers = Object.keys(
-    parsed.data[0] || {}
-  );
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
 
-  const dateKey = headers.find(
-    k =>
-      k.trim().toLowerCase() ===
-      "date"
-  );
+    if (!Array.isArray(row)) {
+      continue;
+    }
 
-  const rainfallKey =
-    headers.find(
-      k =>
-        k.trim().toLowerCase() ===
-        "rainfall (mm)"
-    ) ||
-    headers.find(
-      k =>
-        k
-          .trim()
-          .toLowerCase()
-          .includes("rainfall")
-    );
+    const cleaned = row.map(cleanCell);
 
-  if (!dateKey || !rainfallKey) {
-    throw new Error(
-      `Could not identify Date/Rainfall ` +
-      `columns for ${year}-` +
-      `${String(month).padStart(2, "0")}. ` +
-      `Headers: ${headers.join(", ")}`
-    );
-  }
+    const dIndex =
+      cleaned.findIndex(
+        cell =>
+          cell.toLowerCase() === "date"
+      );
 
-  const rows = [];
+    const rIndex =
+      cleaned.findIndex(
+        cell => {
+          const c =
+            cell.toLowerCase();
 
-  for (const row of parsed.data) {
-    const rawDate = String(
-      row[dateKey] || ""
-    ).trim();
+          return (
+            c === "rainfall (mm)" ||
+            c === "rainfall" ||
+            c.includes("rainfall")
+          );
+        }
+      );
 
     if (
-      !rawDate ||
+      dIndex !== -1 &&
+      rIndex !== -1
+    ) {
+      headerIndex = i;
+      dateColumn = dIndex;
+      rainfallColumn = rIndex;
+      break;
+    }
+  }
+
+  if (
+    headerIndex === -1 ||
+    dateColumn === -1 ||
+    rainfallColumn === -1
+  ) {
+    console.log(
+      "Could not identify CSV header. " +
+      "First 15 parsed rows:"
+    );
+
+    console.log(
+      JSON.stringify(
+        rows.slice(0, 15),
+        null,
+        2
+      )
+    );
+
+    throw new Error(
+      `Could not identify Date and Rainfall columns ` +
+      `for ${year}-${String(month).padStart(2, "0")}.`
+    );
+  }
+
+  console.log(
+    `BOM header found at row ${headerIndex + 1}; ` +
+    `Date column ${dateColumn + 1}; ` +
+    `Rainfall column ${rainfallColumn + 1}`
+  );
+
+  const output = [];
+
+  for (
+    let i = headerIndex + 1;
+    i < rows.length;
+    i++
+  ) {
+    const row = rows[i];
+
+    if (!Array.isArray(row)) {
+      continue;
+    }
+
+    const rawDate =
+      cleanCell(
+        row[dateColumn]
+      );
+
+    if (
       !/^\d{4}-\d{1,2}-\d{1,2}$/.test(
         rawDate
       )
@@ -268,13 +289,14 @@ function parseBOMMonthlyCsv(
       continue;
     }
 
-    const rainfallRaw = String(
-      row[rainfallKey] ?? ""
-    ).trim();
+    const rainfallRaw =
+      cleanCell(
+        row[rainfallColumn]
+      );
 
     /*
-     * Do not assume a blank rainfall
-     * observation means zero rainfall.
+     * A genuinely blank rainfall value is
+     * not automatically converted to zero.
      */
     if (rainfallRaw === "") {
       continue;
@@ -287,26 +309,29 @@ function parseBOMMonthlyCsv(
       continue;
     }
 
-    const dateParts =
+    const parts =
       rawDate
         .split("-")
         .map(Number);
 
     const date =
-      `${String(dateParts[0])
-        .padStart(4, "0")}-` +
-      `${String(dateParts[1])
-        .padStart(2, "0")}-` +
-      `${String(dateParts[2])
-        .padStart(2, "0")}`;
+      `${String(parts[0]).padStart(4, "0")}-` +
+      `${String(parts[1]).padStart(2, "0")}-` +
+      `${String(parts[2]).padStart(2, "0")}`;
 
-    rows.push({
+    output.push({
       date,
       rainfall_mm: rainfall
     });
   }
 
-  return rows;
+  return output;
+}
+
+function stripBOM(text) {
+  return text
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n/g, "\n");
 }
 
 function todayISO() {
@@ -337,6 +362,10 @@ async function fetchDailyRowsForDateRange() {
   const currentMonth =
     now.getUTCMonth() + 1;
 
+  /*
+   * This remains the current 2026
+   * rainfall-year window.
+   */
   const months = monthRange(
     2025,
     11,
@@ -350,10 +379,11 @@ async function fetchDailyRowsForDateRange() {
     const { year, month }
     of months
   ) {
-    const url = dailyCsvUrl(
-      year,
-      month
-    );
+    const url =
+      dailyCsvUrl(
+        year,
+        month
+      );
 
     console.log(
       `Fetching BOM daily data: ${url}`
@@ -389,14 +419,19 @@ function buildDailyRows(rows) {
   let cumulative = 0;
 
   return rows.map(d => {
-    cumulative += d.rainfall_mm;
+    cumulative +=
+      d.rainfall_mm;
 
     return {
       date: d.date,
       rainfall_mm:
-        round1(d.rainfall_mm),
+        round1(
+          d.rainfall_mm
+        ),
       cumulative_mm:
-        round1(cumulative),
+        round1(
+          cumulative
+        ),
       x: monthAxis(d.date)
     };
   });
