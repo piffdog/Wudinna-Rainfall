@@ -10,10 +10,16 @@ const RAINFALL_YEAR_ENDING_OCTOBER = 2026;
 const START_DATE = "2025-11-01";
 const END_DATE = "2026-10-31";
 
-const OUT_PATH = path.join(__dirname, "..", "data", "current-year.json");
+const OUT_PATH = path.join(
+  __dirname,
+  "..",
+  "data",
+  "current-year.json"
+);
 
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/124 Safari/537.36",
+  "User-Agent":
+    "Mozilla/5.0 AppleWebKit/537.36 Chrome/124 Safari/537.36",
   "Accept": "text/csv,text/plain,*/*",
   "Referer": "https://www.bom.gov.au/"
 };
@@ -23,7 +29,9 @@ function monthAxis(date) {
   const month = d.getUTCMonth() + 1;
   const day = d.getUTCDate();
   const year = d.getUTCFullYear();
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+  const daysInMonth =
+    new Date(Date.UTC(year, month, 0)).getUTCDate();
 
   const base = {
     11: 0,
@@ -44,30 +52,35 @@ function monthAxis(date) {
 }
 
 function round1(x) {
-  return Math.round((Number(x) + Number.EPSILON) * 10) / 10;
+  return Math.round(
+    (Number(x) + Number.EPSILON) * 10
+  ) / 10;
 }
 
 function isoMonth(year, month) {
   return `${year}${String(month).padStart(2, "0")}`;
 }
 
-function addMonths(year, month, delta) {
-  const d = new Date(Date.UTC(year, month - 1 + delta, 1));
-  return {
-    year: d.getUTCFullYear(),
-    month: d.getUTCMonth() + 1
-  };
-}
-
-function monthRange(startYear, startMonth, endYear, endMonth) {
+function monthRange(
+  startYear,
+  startMonth,
+  endYear,
+  endMonth
+) {
   const out = [];
   let i = 0;
-  const start = new Date(Date.UTC(startYear, startMonth - 1, 1));
-  const end = new Date(Date.UTC(endYear, endMonth - 1, 1));
+
+  const end = new Date(
+    Date.UTC(endYear, endMonth - 1, 1)
+  );
 
   while (true) {
     const d = new Date(
-      Date.UTC(startYear, startMonth - 1 + i, 1)
+      Date.UTC(
+        startYear,
+        startMonth - 1 + i,
+        1
+      )
     );
 
     if (d > end) break;
@@ -86,22 +99,37 @@ function monthRange(startYear, startMonth, endYear, endMonth) {
 function dailyCsvUrl(year, month) {
   const ym = isoMonth(year, month);
 
-  return `https://www.bom.gov.au/climate/dwo/${ym}/text/IDCJDW${DWO_STATION_CODE}.${ym}.csv`;
+  return (
+    `https://www.bom.gov.au/climate/dwo/` +
+    `${ym}/text/` +
+    `IDCJDW${DWO_STATION_CODE}.${ym}.csv`
+  );
 }
 
-async function fetchWithRetry(url, attempts = 4) {
+async function fetchWithRetry(
+  url,
+  attempts = 4
+) {
   let lastError = null;
 
-  for (let attempt = 1; attempt <= attempts; attempt++) {
+  for (
+    let attempt = 1;
+    attempt <= attempts;
+    attempt++
+  ) {
     try {
-      const response = await fetch(url, { headers: HEADERS });
+      const response = await fetch(
+        url,
+        { headers: HEADERS }
+      );
 
       if (response.ok) {
         return await response.text();
       }
 
       lastError = new Error(
-        `BOM request failed: HTTP ${response.status} ${url}`
+        `BOM request failed: ` +
+        `HTTP ${response.status} ${url}`
       );
     } catch (err) {
       lastError = err;
@@ -111,74 +139,166 @@ async function fetchWithRetry(url, attempts = 4) {
       const waitMs = 1500 * attempt;
 
       console.log(
-        `Retrying BOM request in ${waitMs}ms ` +
+        `Retrying BOM request in ` +
+        `${waitMs}ms ` +
         `(attempt ${attempt + 1}/${attempts})`
       );
 
-      await new Promise(resolve => setTimeout(resolve, waitMs));
+      await new Promise(
+        resolve => setTimeout(resolve, waitMs)
+      );
     }
   }
 
   throw lastError;
 }
 
-function parseBOMMonthlyCsv(csvText, year, month) {
-  const parsed = Papa.parse(csvText, {
-    header: true,
-    dynamicTyping: false,
-    skipEmptyLines: true
-  });
+function stripBOM(text) {
+  return text.replace(/^\uFEFF/, "");
+}
 
-  if (parsed.errors.length) {
+function isolateBOMTable(csvText) {
+  const text = stripBOM(
+    csvText.replace(/\r\n/g, "\n")
+  );
+
+  const lines = text.split("\n");
+
+  /*
+   * BOM files contain descriptive metadata
+   * before the actual CSV table.
+   *
+   * Find the real header beginning "Date,"
+   * and discard everything before it.
+   */
+  const headerIndex = lines.findIndex(
+    line =>
+      line
+        .trim()
+        .toLowerCase()
+        .startsWith("date,")
+  );
+
+  if (headerIndex === -1) {
     throw new Error(
-      `CSV parse errors for ${year}-${String(month).padStart(2, "0")}: ` +
-      JSON.stringify(parsed.errors.slice(0, 3))
+      "Could not find the BOM CSV header " +
+      "line beginning with 'Date,'."
     );
   }
 
-  const dateKey = Object.keys(parsed.data[0] || {}).find(
-    k => k.trim().toLowerCase() === "date"
+  return lines
+    .slice(headerIndex)
+    .join("\n");
+}
+
+function parseBOMMonthlyCsv(
+  csvText,
+  year,
+  month
+) {
+  const tableText =
+    isolateBOMTable(csvText);
+
+  const parsed = Papa.parse(
+    tableText,
+    {
+      header: true,
+      dynamicTyping: false,
+      skipEmptyLines: true
+    }
+  );
+
+  if (parsed.errors.length) {
+    throw new Error(
+      `CSV parse errors for ` +
+      `${year}-` +
+      `${String(month).padStart(2, "0")}: ` +
+      JSON.stringify(
+        parsed.errors.slice(0, 5)
+      )
+    );
+  }
+
+  const headers = Object.keys(
+    parsed.data[0] || {}
+  );
+
+  const dateKey = headers.find(
+    k =>
+      k.trim().toLowerCase() ===
+      "date"
   );
 
   const rainfallKey =
-    Object.keys(parsed.data[0] || {}).find(
-      k => k.trim().toLowerCase() === "rainfall (mm)"
+    headers.find(
+      k =>
+        k.trim().toLowerCase() ===
+        "rainfall (mm)"
     ) ||
-    Object.keys(parsed.data[0] || {}).find(
-      k => k.trim().toLowerCase().includes("rainfall")
+    headers.find(
+      k =>
+        k
+          .trim()
+          .toLowerCase()
+          .includes("rainfall")
     );
 
   if (!dateKey || !rainfallKey) {
     throw new Error(
-      `Could not identify Date/Rainfall columns for ` +
-      `${year}-${String(month).padStart(2, "0")}. ` +
-      `Headers: ${Object.keys(parsed.data[0] || {}).join(", ")}`
+      `Could not identify Date/Rainfall ` +
+      `columns for ${year}-` +
+      `${String(month).padStart(2, "0")}. ` +
+      `Headers: ${headers.join(", ")}`
     );
   }
 
   const rows = [];
 
   for (const row of parsed.data) {
-    const rawDate = String(row[dateKey] || "").trim();
+    const rawDate = String(
+      row[dateKey] || ""
+    ).trim();
 
-    if (!rawDate || !/^\d{4}-\d{1,2}-\d{1,2}$/.test(rawDate)) {
+    if (
+      !rawDate ||
+      !/^\d{4}-\d{1,2}-\d{1,2}$/.test(
+        rawDate
+      )
+    ) {
       continue;
     }
 
-    const rainfallRaw = String(row[rainfallKey] ?? "").trim();
+    const rainfallRaw = String(
+      row[rainfallKey] ?? ""
+    ).trim();
 
-    if (rainfallRaw === "") continue;
+    /*
+     * Do not assume a blank rainfall
+     * observation means zero rainfall.
+     */
+    if (rainfallRaw === "") {
+      continue;
+    }
 
-    const rainfall = Number(rainfallRaw);
+    const rainfall =
+      Number(rainfallRaw);
 
-    if (!Number.isFinite(rainfall)) continue;
+    if (!Number.isFinite(rainfall)) {
+      continue;
+    }
 
-    const dateParts = rawDate.split("-").map(Number);
+    const dateParts =
+      rawDate
+        .split("-")
+        .map(Number);
 
     const date =
-      `${String(dateParts[0]).padStart(4, "0")}-` +
-      `${String(dateParts[1]).padStart(2, "0")}-` +
-      `${String(dateParts[2]).padStart(2, "0")}`;
+      `${String(dateParts[0])
+        .padStart(4, "0")}-` +
+      `${String(dateParts[1])
+        .padStart(2, "0")}-` +
+      `${String(dateParts[2])
+        .padStart(2, "0")}`;
 
     rows.push({
       date,
@@ -189,11 +309,33 @@ function parseBOMMonthlyCsv(csvText, year, month) {
   return rows;
 }
 
+function todayISO() {
+  const d = new Date();
+
+  const y =
+    d.getUTCFullYear();
+
+  const m =
+    String(
+      d.getUTCMonth() + 1
+    ).padStart(2, "0");
+
+  const day =
+    String(
+      d.getUTCDate()
+    ).padStart(2, "0");
+
+  return `${y}-${m}-${day}`;
+}
+
 async function fetchDailyRowsForDateRange() {
   const now = new Date();
 
-  const currentYear = now.getUTCFullYear();
-  const currentMonth = now.getUTCMonth() + 1;
+  const currentYear =
+    now.getUTCFullYear();
+
+  const currentMonth =
+    now.getUTCMonth() + 1;
 
   const months = monthRange(
     2025,
@@ -204,20 +346,28 @@ async function fetchDailyRowsForDateRange() {
 
   const all = [];
 
-  for (const { year, month } of months) {
-    const url = dailyCsvUrl(year, month);
+  for (
+    const { year, month }
+    of months
+  ) {
+    const url = dailyCsvUrl(
+      year,
+      month
+    );
 
     console.log(
       `Fetching BOM daily data: ${url}`
     );
 
-    const csvText = await fetchWithRetry(url);
+    const csvText =
+      await fetchWithRetry(url);
 
-    const rows = parseBOMMonthlyCsv(
-      csvText,
-      year,
-      month
-    );
+    const rows =
+      parseBOMMonthlyCsv(
+        csvText,
+        year,
+        month
+      );
 
     all.push(...rows);
   }
@@ -230,24 +380,9 @@ async function fetchDailyRowsForDateRange() {
         d.date <= todayISO()
     )
     .sort(
-      (a, b) => a.date.localeCompare(b.date)
+      (a, b) =>
+        a.date.localeCompare(b.date)
     );
-}
-
-function todayISO() {
-  const d = new Date();
-
-  const y = d.getUTCFullYear();
-
-  const m = String(
-    d.getUTCMonth() + 1
-  ).padStart(2, "0");
-
-  const day = String(
-    d.getUTCDate()
-  ).padStart(2, "0");
-
-  return `${y}-${m}-${day}`;
 }
 
 function buildDailyRows(rows) {
@@ -258,8 +393,10 @@ function buildDailyRows(rows) {
 
     return {
       date: d.date,
-      rainfall_mm: round1(d.rainfall_mm),
-      cumulative_mm: round1(cumulative),
+      rainfall_mm:
+        round1(d.rainfall_mm),
+      cumulative_mm:
+        round1(cumulative),
       x: monthAxis(d.date)
     };
   });
@@ -271,13 +408,15 @@ async function main() {
 
   if (!dailySourceRows.length) {
     throw new Error(
-      "No BOM daily rainfall rows were retrieved " +
-      "for the current rainfall year."
+      "No BOM daily rainfall rows were " +
+      "retrieved for the current rainfall year."
     );
   }
 
   const daily =
-    buildDailyRows(dailySourceRows);
+    buildDailyRows(
+      dailySourceRows
+    );
 
   const latest =
     daily[daily.length - 1];
@@ -292,9 +431,9 @@ async function main() {
     updatedAt:
       new Date().toISOString(),
     source:
-      "BOM Daily Weather Observations monthly " +
-      "CSV files for Wudinna Aero station 018083 " +
-      "(DWO station code 5073).",
+      "BOM Daily Weather Observations " +
+      "monthly CSV files for Wudinna Aero " +
+      "station 018083 (DWO station code 5073).",
     daily
   };
 
@@ -305,12 +444,17 @@ async function main() {
 
   await fs.writeFile(
     OUT_PATH,
-    JSON.stringify(output, null, 2) + "\n",
+    JSON.stringify(
+      output,
+      null,
+      2
+    ) + "\n",
     "utf8"
   );
 
   console.log(
-    `Wrote ${daily.length} daily rows to ${OUT_PATH}`
+    `Wrote ${daily.length} daily rows ` +
+    `to ${OUT_PATH}`
   );
 
   console.log(
