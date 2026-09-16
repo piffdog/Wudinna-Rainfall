@@ -4,8 +4,8 @@
   "rainfallYearEndingOctober": 2026,
   "startDate": "2025-11-01",
   "endDate": "2026-10-31",
-  "updatedAt": "2026-09-14T23:58:47.551Z",
-  "source": "Nov-Dec 2025 retained from committed JSON; 2026 refreshed from BOM daily rainfall ZIP IDCJAC0009 for station 018083.",
+  "updatedAt": "2026-09-16T03:13:10.777Z",
+  "source": "BOM Daily Weather Observations monthly CSV files for Wudinna Aero station 018083 (DWO station code 5073).",
   "daily": [
     {
       "date": "2025-11-01",
@@ -24,12 +24,6 @@
       "rainfall_mm": 6.6,
       "cumulative_mm": 6.8,
       "x": 0.06666666666666667
-    },
-    {
-      "date": "2025-11-04",
-      "rainfall_mm": 0,
-      "cumulative_mm": 6.8,
-      "x": 0.1
     },
     {
       "date": "2025-11-05",
@@ -1914,6 +1908,18 @@
       "rainfall_mm": 0.8,
       "cumulative_mm": 469.2,
       "x": 10.433333333333334
+    },
+    {
+      "date": "2026-09-15",
+      "rainfall_mm": 0.6,
+      "cumulative_mm": 469.8,
+      "x": 10.466666666666667
+    },
+    {
+      "date": "2026-09-16",
+      "rainfall_mm": 0,
+      "cumulative_mm": 469.8,
+      "x": 10.5
     }
   ]
 }
