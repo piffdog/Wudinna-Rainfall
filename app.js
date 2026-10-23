@@ -341,7 +341,7 @@ async function main() {
         },
         y: {
           min: 0,
-          max: 465,
+          max: 550,
           grid: { display: false },
           border: { color: "#CFCFCF" },
           title: {
