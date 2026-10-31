@@ -4,7 +4,7 @@
   "rainfallYearEndingOctober": 2026,
   "startDate": "2025-11-01",
   "endDate": "2026-10-31",
-  "updatedAt": "2026-10-30T23:01:47.445Z",
+  "updatedAt": "2026-10-31T02:29:50.670Z",
   "source": "BOM Daily Weather Observations monthly CSV files for Wudinna Aero station 018083 (DWO station code 5073).",
   "daily": [
     {
@@ -2184,6 +2184,12 @@
       "rainfall_mm": 1.4,
       "cumulative_mm": 506,
       "x": 11.935483870967742
+    },
+    {
+      "date": "2026-10-31",
+      "rainfall_mm": 4.2,
+      "cumulative_mm": 510.2,
+      "x": 11.967741935483872
     }
   ]
 }
