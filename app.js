@@ -50,6 +50,29 @@ function buildHistoricalRainfallYears() {
   return records;
 }
 
+function addCompleted2026(records, archived) {
+  if (!archived || archived.rainfallYearEndingOctober !== 2026) throw new Error("Missing verified YE Oct 2026 archive");
+  const daily = archived.daily || [];
+  if (!daily.length || daily[daily.length - 1].date !== "2026-10-31") throw new Error("YE Oct 2026 archive is not complete through 31 October");
+  const total = Number(daily[daily.length - 1].cumulative_mm);
+  const sum = daily.reduce((acc, r) => acc + Number(r.rainfall_mm), 0);
+  if (Math.abs(sum - total) > 0.051) throw new Error("2026 cumulative total fails validation");
+  const points = [{x:0,y:0}, ...daily.map(d => ({x:Number(d.x),y:Number(d.cumulative_mm)})), {x:12,y:total}];
+  records.push({yearEndingOctober:2026,total,points,daily:true});
+  return records;
+}
+function monthlyMedianAtBoundaries(records) {
+  const vals = records.map(r => {
+    const ends = [];
+    for(let m=1;m<=12;m++) {
+      const eligible = r.points.filter(p=>p.x <= m + 1e-9);
+      if(!eligible.length) throw new Error("Missing cumulative monthly observation");
+      ends.push(eligible[eligible.length-1].y);
+    }
+    return ends;
+  });
+  return Array.from({length:13},(_,i)=>({x:i,y:i===0?0:round1(median(vals.map(v=>v[i-1])))}));
+}
 function round1(x) {
   return Math.round((Number(x) + Number.EPSILON) * 10) / 10;
 }
@@ -62,10 +85,7 @@ function median(values) {
 }
 
 function buildMedianSeries(records) {
-  return Array.from({ length: 13 }, (_, i) => ({
-    x: i,
-    y: round1(median(records.map(r => r.points[i].y)))
-  }));
+  return monthlyMedianAtBoundaries(records);
 }
 
 function latestDailyPoint(daily) {
@@ -135,11 +155,11 @@ function buildDatasets(records, currentDaily) {
     order: 4
   });
 
-  if (currentDaily && currentDaily.length) {
-    const last = latestDailyPoint(currentDaily);
+  {
+    const last = currentDaily.length ? latestDailyPoint(currentDaily) : null;
     datasets.push({
-      label: `YE Oct 2026 (${round1(last.cumulative_mm).toFixed(1)}mm to ${formatDate(last.date)})`,
-      data: currentDaily.map(d => ({ x: Number(d.x), y: Number(d.cumulative_mm) })),
+      label: last ? `YE Oct 2027 (${round1(last.cumulative_mm).toFixed(1)}mm to ${formatDate(last.date)})` : "YE Oct 2027 (awaiting daily observations)",
+      data: [{x:0,y:0}, ...currentDaily.map(d => ({ x: Number(d.x), y: Number(d.cumulative_mm) }))],
       borderColor: COLOURS.current,
       borderWidth: 3.8,
       pointRadius: 0,
@@ -184,13 +204,13 @@ const endpointLabelsPlugin = {
     }
 
     opts.top3.forEach((r, idx) => {
-      const yPositions = [yScale.getPixelForValue(426), yScale.getPixelForValue(397), yScale.getPixelForValue(357)];
+      const yPositions = opts.top3.map((item, i) => yScale.getPixelForValue(item.total) + (i === 0 ? -14 : i === 1 ? 0 : 14));
       const text = idx === 0 ? `${r.yearEndingOctober}\n${r.total.toFixed(1)}mm` : `${r.yearEndingOctober}`;
       drawLabel(text, yPositions[idx], COLOURS.high, idx === 0);
     });
 
     opts.bottom3.forEach((r, idx) => {
-      const yPositions = [yScale.getPixelForValue(132), yScale.getPixelForValue(190), yScale.getPixelForValue(216)];
+      const yPositions = opts.bottom3.map((item, i) => yScale.getPixelForValue(item.total) + (i === 0 ? 12 : i === 1 ? 0 : -12));
       const text = idx === 0 ? `${r.yearEndingOctober}\n${r.total.toFixed(1)}mm` : `${r.yearEndingOctober}`;
       drawLabel(text, yPositions[idx], COLOURS.low, idx === 0);
     });
@@ -210,7 +230,7 @@ const endpointLabelsPlugin = {
       ctx.font = "700 12px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
       ctx.fillStyle = COLOURS.current;
 
-      [`2026`, `${round1(last.cumulative_mm).toFixed(1)}mm`].forEach((line, i) => {
+      [`2027`, `${round1(last.cumulative_mm).toFixed(1)}mm`].forEach((line, i) => {
         ctx.fillText(line, currentX, currentY + (i - 0.5) * 14);
       });
     }
@@ -252,7 +272,9 @@ function renderSummary(records, currentDaily, top3, bottom3, medianSeries, updat
 }
 
 async function main() {
-  const records = buildHistoricalRainfallYears();
+  const archiveResponse = await fetch(`data/year-ending-october-2026.json?ts=${Date.now()}`, {cache:"no-store"});
+  if (!archiveResponse.ok) throw new Error("Could not load YE Oct 2026 historical archive");
+  const records = addCompleted2026(buildHistoricalRainfallYears(), await archiveResponse.json());
   const current = await loadCurrentYear();
   const currentDaily = current.daily || [];
   const { datasets, top3, bottom3, medianSeries } = buildDatasets(records, currentDaily);
