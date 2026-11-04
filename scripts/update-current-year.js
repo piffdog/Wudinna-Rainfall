@@ -38,7 +38,7 @@ async function main(){
   const rows=parse(await fetchCsv(url),ym);all.push(...rows);
   m++;if(m===13){m=1;y++;}
  }
- const rows=all.filter(r=>r.date>=START&&r.date<=last).sort((a,b)=>a.date.localeCompare(b.date));
+ const rows=all.filter(r=>r.date>=START&&r.date<=last&&r.rainfall_mm!==null&&Number.isFinite(r.rainfall_mm)).sort((a,b)=>a.date.localeCompare(b.date));
  if(!rows.length)throw Error("No current-year observations available; retaining existing JSON");
  if(rows.some(r=>r.rainfall_mm===null || !Number.isFinite(r.rainfall_mm)))throw Error("Missing/non-numeric BOM rainfall observation: retaining existing JSON");
  const seen=new Set();let total=0;
