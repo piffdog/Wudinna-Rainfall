@@ -40,7 +40,7 @@ async function main(){
  }
  const rows=all.filter(r=>r.date>=START&&r.date<=last&&r.rainfall_mm!==null&&Number.isFinite(r.rainfall_mm)).sort((a,b)=>a.date.localeCompare(b.date));
  if(!rows.length)throw Error("No current-year observations available; retaining existing JSON");
- if(rows.some(r=>r.rainfall_mm===null || !Number.isFinite(r.rainfall_mm)))throw Error("Missing/non-numeric BOM rainfall observation: retaining existing JSON");
+ 
  const seen=new Set();let total=0;
  const daily=rows.map(r=>{if(seen.has(r.date))throw Error(`Duplicate date ${r.date}`);seen.add(r.date);total+=r.rainfall_mm;return {date:r.date,rainfall_mm:Math.round(r.rainfall_mm*10)/10,cumulative_mm:Math.round(total*10)/10,x:axis(r.date)};});
  const prev=existing.daily||[];
