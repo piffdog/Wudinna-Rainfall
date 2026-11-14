@@ -4,7 +4,7 @@
   "rainfallYearEndingOctober": 2027,
   "startDate": "2026-11-01",
   "endDate": "2027-10-31",
-  "updatedAt": "2026-11-13T23:40:07.889Z",
+  "updatedAt": "2026-11-14T06:41:19.128Z",
   "source": "BOM Daily Weather Observations station 018083",
   "daily": [
     {
@@ -84,6 +84,12 @@
       "rainfall_mm": 1.6,
       "cumulative_mm": 1.6,
       "x": 0.4
+    },
+    {
+      "date": "2026-11-14",
+      "rainfall_mm": 0,
+      "cumulative_mm": 1.6,
+      "x": 0.43333333333333335
     }
   ]
 }
